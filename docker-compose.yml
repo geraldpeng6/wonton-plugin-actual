@@ -1,0 +1,220 @@
+# Actual Budget 服务器：本地优先的家庭记账。网页经核心网关打开，网关带上 x-actual-password 头代为登录。
+name: actual
+services:
+  actual:
+    # 上游官方镜像，按清单列表的摘要固定（amd64 与 arm64）。
+    image: actualbudget/actual-server:26.11.0@sha256:06cf186569cf58d93e12659ff1a517b65b5b0ebee7050a3991d4bd8a1d398da6
+    # 应用任意 uid 都能运行；宿主上的账本文件归主人。
+    user: "${PUID}:${PGID}"
+    environment:
+      ACTUAL_LOGIN_METHOD: header
+      # 头认证的真正凭据是密钥（密码存在数据库里），来源地址只决定谁能用这个头。默认值是空列表，
+      # 不写就一律 proxy-not-trusted。Docker 地址池可能是任意网段（10.100、100.64 等），容器又只经插件网络和
+      # 网关可达，所以不限来源。
+      ACTUAL_TRUSTED_AUTH_PROXIES: 0.0.0.0/0,::/0
+      TZ: ${TZ}
+    volumes:
+      - ${WONTON_APP_DATA}:/data
+    # 只读根文件系统；Node 的临时文件走 tmpfs。
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    healthcheck:
+      # init 失败先由 service_completed_successfully 报出；之后才检查网页服务就绪。
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5006/health',{signal:AbortSignal.timeout(4000)}).then(r=>r.json()).then(h=>process.exit(h.status==='UP'?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+      start_interval: 2s
+    stop_grace_period: 30s
+
+  init:
+    image: actualbudget/actual-server:26.11.0@sha256:06cf186569cf58d93e12659ff1a517b65b5b0ebee7050a3991d4bd8a1d398da6
+    # 服务器没有从环境变量设初始密码的开关，init 用生成的密钥调用 bootstrap，头认证才有密码可比。
+    # 只等 actual 进程启动，再等 HTTP 可用；已经设过密码就跳过。
+    user: "${PUID}:${PGID}"
+    environment:
+      ACTUAL_SERVER_URL: http://actual:5006
+      ACTUAL_PASSWORD: ${WONTON_SECRET_SERVER_PASSWORD}
+    volumes:
+      - ${WONTON_APP_DATA}:/data
+    read_only: true
+    tmpfs:
+      - /tmp:mode=1777
+    depends_on:
+      actual:
+        condition: service_started
+    entrypoint:
+      - node
+      - -e
+      - |
+        (async () => {
+          // /app/package.json 是 type: module，node -e 按 ESM 跑，没有 require。
+          const { createRequire } = await import('node:module');
+          const require = createRequire(import.meta.url);
+          const base = process.env.ACTUAL_SERVER_URL;
+          const password = process.env.ACTUAL_PASSWORD;
+          const deadline = Date.now() + 120000;
+          let ready = false;
+          while (Date.now() < deadline && !ready) {
+            let status;
+            try {
+              status = await fetch(base + '/account/needs-bootstrap', { signal: AbortSignal.timeout(10000) });
+            } catch (err) {
+              // 仅重试启动时的连接拒绝；超时和其他传输错误保留请求路径与原因。
+              if (err.cause?.code !== 'ECONNREFUSED') {
+                throw new Error('needs-bootstrap: ' + err.message, { cause: err });
+              }
+              await new Promise(resolve => setTimeout(resolve, 1000));
+              continue;
+            }
+            if (!status.ok) {
+              throw new Error(`needs-bootstrap: $${status.status} $${await status.text()}`);
+            }
+            const { data } = await status.json();
+            if (!data.bootstrapped) {
+              const boot = await fetch(base + '/account/bootstrap', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ password }),
+                signal: AbortSignal.timeout(10000),
+              });
+              if (!boot.ok) throw new Error(`bootstrap: $${boot.status} $${await boot.text()}`);
+            }
+            ready = true;
+          }
+          if (!ready) throw new Error(`Actual server did not answer on $${base} within 120 s`);
+
+          // 上游 v26.11 的网页只在服务器报的登录方式是 header 时才自动提交头认证；报的方式来自 auth 表里的行。
+          // bootstrap 只写 password 行，所以补一条 header 行，否则用户会看到密码框（actual#4488）。
+          const Database = require('/app/node_modules/better-sqlite3');
+          const db = new Database('/data/server-files/account.sqlite');
+          try {
+            db.prepare(
+              "INSERT OR REPLACE INTO auth (method, display_name, extra_data, active) VALUES ('header', 'Header', NULL, 1)",
+            ).run();
+            // useLoginMethod 取第一条 active 的行；password 还有效，只是不再作为默认。
+            db.prepare("UPDATE auth SET active = 0 WHERE method = 'password'").run();
+          } finally {
+            db.close();
+          }
+
+          // 网关走的就是头认证；确认密钥真能登录，再算完成。
+          const login = await fetch(base + '/account/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', 'x-actual-password': password },
+            body: '{}',
+            signal: AbortSignal.timeout(10000),
+          });
+          const result = await login.json();
+          if (!login.ok || result.status !== 'ok') {
+            throw new Error(`header login: $${login.status} $${JSON.stringify(result)}`);
+          }
+        })().catch(err => {
+          console.error('init failed: ' + (err?.stack || err));
+          process.exit(1);
+        });
+    restart: "no"
+
+  mcp:
+    # 社区 MCP 服务器 s-stefanov/actual-mcp（MIT），它自己的官方镜像，支持 Streamable HTTP，按清单列表摘要固定。
+    image: sstefanov/actual-mcp:v1.15.1@sha256:9d6b216146fcd5f59303945d4f47ee6cbfbdc12a4f6a66f52029507e4ad0cb93
+    # 写工具默认关闭，账单要能由 Bot 记，所以打开。
+    command: ["--sse", "--enable-write", "--port", "3000"]
+    user: "${PUID}:${PGID}"
+    # Docker 重启后的默认 tmpfs 权限会变成 root:root 0755；显式保留主人可写的缓存目录。
+    tmpfs:
+      - /data:uid=${PUID},gid=${PGID},mode=0700
+    # 加载器修正上游的同步 ID、读工具注解及暖连接吞同步错误；升级镜像须逐项匹配补丁。
+    entrypoint: ["node", "--import", "/app/register.mjs", "build/index.js"]
+    configs:
+      - source: mcp-register
+        target: /app/register.mjs
+      - source: mcp-patch-loader
+        target: /app/patch-loader.mjs
+      - source: mcp-healthcheck
+        target: /app/healthcheck.mjs
+      - source: mcp-remote-budget
+        target: /app/remote-budget.mjs
+    environment:
+      ACTUAL_DATA_DIR: /data
+      ACTUAL_SERVER_URL: http://actual:5006
+      ACTUAL_PASSWORD: ${WONTON_SECRET_SERVER_PASSWORD}
+    depends_on:
+      # init 已经等过 actual 启动并验证登录；不再先等 actual 的健康检查。
+      init:
+        condition: service_completed_successfully
+    healthcheck:
+      # 登录、MCP 协议握手和工具列表；有预算时实际调用 get-accounts，覆盖下载与解密失败。
+      test: ["CMD", "node", "/app/healthcheck.mjs"]
+      interval: 60s
+      timeout: 15s
+      retries: 6
+      start_period: 30s
+      start_interval: 2s
+
+x-wonton:
+  spec: "0.4"
+  id: org.actualbudget.actual
+  version: 0.1.0
+  kind: app
+  title: { zh: Actual 记账, en: Actual Budget }
+  description:
+    zh: 本地优先的家庭记账和信封预算，数据留在自己家里
+    en: Local-first household budgeting with envelope budgets, data stays at home
+  icon: icon.png
+  notices: [NOTICE]
+  category: productivity
+  screenshots:
+    - screenshots/budget.png
+    - screenshots/transactions.png
+    - screenshots/accounts.png
+    - screenshots/reports.png
+  author: { name: geraldpeng6, url: https://github.com/geraldpeng6 }
+  homepage: https://actualbudget.org
+  license: MIT
+  tags: [actual, budget, 记账, 预算, 财务]
+  about:
+    zh: |
+      家庭账本、信封预算、账单和报表。数据存在这台机器上，手机和电脑经云吞打开同一个账本。
+      银行自动同步走 GoCardless 或 SimpleFIN，所以插件要能出网。
+
+      备份在账本的“设置 > 导出数据”里导出到当前设备；服务器不自动留存备份文件。
+    en: |
+      Household ledger, envelope budgets, bills and reports. Data stays on this machine; phone and desktop open the same
+      budget through Wonton. Automatic bank sync uses GoCardless or SimpleFIN, so the plugin needs internet access.
+
+      Export backups from the budget's Settings > Export data to the device; the server keeps no backup files itself.
+  release_notes: { zh: 第一版。, en: First release. }
+  webui:
+    service: actual
+    port: 5006
+    sso: proxy
+    proxy:
+      headers:
+        # Actual 的头认证拿这个值和服务器密码比对；网关先删掉客户端伪造的同名头。
+        x-actual-password: "{secret:server_password}"
+  mcp:
+    service: mcp
+    port: 3000
+    path: /mcp
+    transport: streamable-http
+  secrets:
+    server_password:
+      generate: { bytes: 32 }
+  permissions:
+    - network.egress
+  requirements:
+    arch: [amd64, arm64]
+    memory: 512M
+
+configs:
+  mcp-register:
+    file: mcp/register.mjs
+  mcp-patch-loader:
+    file: mcp/patch-loader.mjs
+  mcp-healthcheck:
+    file: mcp/healthcheck.mjs
+  mcp-remote-budget:
+    file: mcp/remote-budget.mjs
