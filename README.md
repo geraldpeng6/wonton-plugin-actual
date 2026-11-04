@@ -44,7 +44,7 @@ scripts/dev.sh install
 scripts/check.sh --official
 ```
 
-`check.sh` 和安装用同一套解析和校验，通过时打印插件包摘要；`--official` 加官方索引的要求。`dev.sh reinstall` 装了再装一次工作区，数据留着。没有单元测试，改了就在开发环境里走一遍：自动登录、记一笔、重装后数据还在。
+`check.sh` 和安装用同一套解析和校验，通过时打印插件包摘要；`--official` 加官方索引的要求。`dev.sh reinstall` 装了再装一次工作区，数据留着。没有单元测试，改了就在开发环境里走一遍：自动登录、记一笔、重装后数据还在。合并前跑 `scripts/dev.sh smoke`，探测在 `scripts/smoke-probes.sh`。
 
 ## 来源与许可
 
