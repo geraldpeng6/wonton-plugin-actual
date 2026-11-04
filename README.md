@@ -1,6 +1,6 @@
 # 云吞插件：Actual Budget
 
-把 [Actual Budget](https://actualbudget.org)（MIT）装成云吞插件：本地优先的家庭记账和信封预算，网页经云吞网关直接以主人身份打开。插件 ID 是 `org.actualbudget.actual`，用的镜像是上游官方 `actualbudget/actual-server`。
+把 [Actual Budget](https://actualbudget.org)（MIT）装成云吞插件：本地优先的家庭记账和信封预算，网页经云吞网关直接以用户身份打开。插件 ID 是 `org.actualbudget.actual`，用的镜像是上游官方 `actualbudget/actual-server`。
 
 通用写法（compose 子集、权限、注入变量、开发环境参数）见[插件模板的 README](https://github.com/geraldpeng6/wonton-plugin-template)，这里只写这个插件自己的事。
 
@@ -26,13 +26,13 @@
 
 一个远端预算时直接用它，不把本地下载缓存计入账本数量。有多个预算时 MCP 不知道用哪个，会报错；把账本设置 Advanced 里的同步 ID 填进 mcp 服务的 `ACTUAL_BUDGET_SYNC_ID`（清单没有设置表单，要改 compose）。加密的预算没有处理。
 
-Actual 和 init 使用主人的 UID/GID、只读根文件系统和 `/tmp` tmpfs；MCP 也以主人 UID/GID 运行，下载缓存只放在 `/data` tmpfs，容器重启后从服务器重建。MCP 在同一临时目录记录成功加载过的同步 ID，供独立健康检查区分首装零账本和已加载账本失效。健康检查验证头认证、远端选择、MCP 协议与 `get-accounts`，同步失败和身份变化都报错；只有从未加载过账本的零预算安装会跳过读取。临时登录与 MCP 会话在检查结束时关闭。
+Actual 和 init 使用用户的 UID/GID、只读根文件系统和 `/tmp` tmpfs；MCP 也以用户 UID/GID 运行，下载缓存只放在 `/data` tmpfs，容器重启后从服务器重建。MCP 在同一临时目录记录成功加载过的同步 ID，供独立健康检查区分首装零账本和已加载账本失效。健康检查验证头认证、远端选择、MCP 协议与 `get-accounts`，同步失败和身份变化都报错；只有从未加载过账本的零预算安装会跳过读取。临时登录与 MCP 会话在检查结束时关闭。
 
 ## 数据与备份
 
 Actual 的账本、服务器文件和缓存都在 `/data`，宿主上是 `${WONTON_APP_DATA}`；卸载保留数据时一起保留，卸载并删数据时一起删。MCP 的 `/data` 是临时下载缓存，不写入这个持久化目录。
 
-服务器自己不写备份文件，桌面版的自动备份也不覆盖网页。备份由主人在账本的 Settings → Export data 导出到当前设备；导出的 zip 里有 `db.sqlite` 和 `metadata.json`。
+服务器自己不写备份文件，桌面版的自动备份也不覆盖网页。备份由用户在账本的 Settings → Export data 导出到当前设备；导出的 zip 里有 `db.sqlite` 和 `metadata.json`。
 
 银行同步（GoCardless、SimpleFIN）要出网，所以申请了 `network.egress`。其余不需要共享文件夹、显卡和局域网端口。
 
@@ -44,7 +44,7 @@ scripts/dev.sh install
 scripts/check.sh --official
 ```
 
-`check.sh` 和安装用同一套解析和校验，通过时打印插件包摘要；`--official` 加官方索引的要求。`dev.sh reinstall` 装了再装一次工作区，数据留着。没有单元测试，改了就在开发环境里走一遍：自动登录、记一笔、重装后数据还在。合并前跑 `scripts/dev.sh smoke`，探测在 `scripts/smoke-probes.sh`。
+`check.sh` 和安装用同一套解析和校验，通过时打印插件包摘要；`--official` 加官方索引的要求。`dev.sh reinstall` 装了再装一次工作区，数据留着。没有单元测试，改了就在开发环境里走一遍：自动登录、记一笔、重装后数据还在。
 
 ## 来源与许可
 

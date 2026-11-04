@@ -4,7 +4,7 @@ services:
   actual:
     # 上游官方镜像，按清单列表的摘要固定（amd64 与 arm64）。
     image: actualbudget/actual-server:26.11.0@sha256:06cf186569cf58d93e12659ff1a517b65b5b0ebee7050a3991d4bd8a1d398da6
-    # 应用任意 uid 都能运行；宿主上的账本文件归主人。
+    # 应用任意 uid 都能运行；宿主上的账本文件归用户。
     user: "${PUID}:${PGID}"
     environment:
       ACTUAL_LOGIN_METHOD: header
@@ -123,7 +123,7 @@ services:
     # 写工具默认关闭，账单要能由 Bot 记，所以打开。
     command: ["--sse", "--enable-write", "--port", "3000"]
     user: "${PUID}:${PGID}"
-    # Docker 重启后的默认 tmpfs 权限会变成 root:root 0755；显式保留主人可写的缓存目录。
+    # Docker 重启后的默认 tmpfs 权限会变成 root:root 0755；显式保留用户可写的缓存目录。
     tmpfs:
       - /data:uid=${PUID},gid=${PGID},mode=0700
     # 加载器修正上游的同步 ID、读工具注解及暖连接吞同步错误；升级镜像须逐项匹配补丁。
@@ -157,15 +157,14 @@ services:
 x-wonton:
   spec: "0.4"
   id: org.actualbudget.actual
-  version: 0.1.0
+  version: 0.1.1
   kind: app
-  title: { zh: Actual 记账, en: Actual Budget }
+  title: { en: Actual }
   description:
-    zh: 本地优先的家庭记账和信封预算，数据留在自己家里
-    en: Local-first household budgeting with envelope budgets, data stays at home
+    zh: 记家庭账、做预算，数据留在自己家里
+    en: Track household spending and budgets, with your data at home
   icon: icon.png
   notices: [NOTICE]
-  category: productivity
   screenshots:
     - screenshots/budget.png
     - screenshots/transactions.png
@@ -174,19 +173,19 @@ x-wonton:
   author: { name: geraldpeng6, url: https://github.com/geraldpeng6 }
   homepage: https://actualbudget.org
   license: MIT
-  tags: [actual, budget, 记账, 预算, 财务]
+  tags:
+    zh: [记账]
+    en: [Finance]
   about:
     zh: |
-      家庭账本、信封预算、账单和报表。数据存在这台机器上，手机和电脑经云吞打开同一个账本。
-      银行自动同步走 GoCardless 或 SimpleFIN，所以插件要能出网。
+      记家庭收支、做预算、看报表。手机和电脑打开的是同一个账本，数据留在这台机器上。
 
-      备份在账本的“设置 > 导出数据”里导出到当前设备；服务器不自动留存备份文件。
+      银行自动同步用 GoCardless 或 SimpleFIN，所以要能出网。备份在账本的“设置 > 导出数据”里导出到当前设备。
     en: |
-      Household ledger, envelope budgets, bills and reports. Data stays on this machine; phone and desktop open the same
-      budget through Wonton. Automatic bank sync uses GoCardless or SimpleFIN, so the plugin needs internet access.
+      Track household income and spending, set budgets and read reports. Phone and desktop open the same budget, and the data stays on this machine.
 
-      Export backups from the budget's Settings > Export data to the device; the server keeps no backup files itself.
-  release_notes: { zh: 第一版。, en: First release. }
+      Automatic bank sync uses GoCardless or SimpleFIN, so the plugin needs internet access. Export backups from the budget's Settings > Export data to the current device.
+  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
   webui:
     service: actual
     port: 5006
@@ -205,9 +204,10 @@ x-wonton:
       generate: { bytes: 32 }
   permissions:
     - network.egress
+  # 上游没写最低内存；本机空闲实测约 153M，取 256M。镜像支持 amd64 和 arm64（docker manifest inspect）。
   requirements:
     arch: [amd64, arm64]
-    memory: 512M
+    memory: 256M
 
 configs:
   mcp-register:
