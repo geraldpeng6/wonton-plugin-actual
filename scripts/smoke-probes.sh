@@ -6,7 +6,7 @@ SMOKE_NOTE="单用户应用，用户表没有用户名，身份按 validate 的 
 web_assert() { grep -qi 'actual'; }   # 标准输入：应用真实页面
 
 # 应用是单用户的：用户表没有用户名（userName 为空），应用侧能断言的是“认出来的是管理员本人”。
-identity_check() { # 应用自己的登录 + validate 接口：认出来的是主人管理员
+identity_check() { # 应用自己的登录 + validate 接口：认出来的是用户管理员
   local r tok v
   r="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' \
     -d '{"loginMethod":"header"}' "$SMOKE_WEB_URL/account/login")" || { echo "login 失败：$r"; return 1; }
@@ -14,7 +14,7 @@ identity_check() { # 应用自己的登录 + validate 接口：认出来的是�
   [[ -n "$tok" ]] || { echo "login 没给 token：$r"; return 1; }
   v="$(web_get /account/validate -H "x-actual-token: $tok" -H 'Accept: application/json')" || { echo "validate 失败：$v"; return 1; }
   jq -e '.data.validated == true and (.data.permission | ascii_upcase) == "ADMIN" and (.data.userId | length) > 0' <<<"$v" >/dev/null ||
-    { echo "validate 不是主人管理员：$v"; return 1; }
+    { echo "validate 不是用户管理员：$v"; return 1; }
 }
 
 mcp_check() { # 有只读工具就真调一个，否则只断言 tools/list 有工具
