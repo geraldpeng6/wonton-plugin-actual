@@ -157,7 +157,7 @@ services:
 x-wonton:
   spec: "0.4"
   id: org.actualbudget.actual
-  version: 0.1.1
+  version: 0.1.2
   kind: app
   title: { en: Actual }
   description:
@@ -180,12 +180,12 @@ x-wonton:
     zh: |
       记家庭收支、做预算、看报表。手机和电脑打开的是同一个账本，数据留在这台机器上。
 
-      银行自动同步用 GoCardless 或 SimpleFIN，所以要能出网。备份在账本的“设置 > 导出数据”里导出到当前设备。
+      先在网页里新建或导入一本账本，Bot 的记账工具才有账可查。银行自动同步用 GoCardless 或 SimpleFIN，所以要能出网。备份在账本的“设置 > 导出数据”里导出到当前设备。
     en: |
       Track household income and spending, set budgets and read reports. Phone and desktop open the same budget, and the data stays on this machine.
 
-      Automatic bank sync uses GoCardless or SimpleFIN, so the plugin needs internet access. Export backups from the budget's Settings > Export data to the current device.
-  release_notes: { zh: 名字和说明更新。, en: Product name and description update. }
+      Create or import a budget in the web app first; the bot's ledger tools read from it. Automatic bank sync uses GoCardless or SimpleFIN, so the plugin needs internet access. Export backups from the budget's Settings > Export data to the current device.
+  release_notes: { zh: 说明补充：先建账本，Bot 的记账工具才能用。, en: Clarified that a budget must be created before the bot's ledger tools work. }
   webui:
     service: actual
     port: 5006
