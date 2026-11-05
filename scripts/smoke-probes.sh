@@ -21,7 +21,8 @@ mcp_check() { # 有只读工具就真调一个，否则只断言 tools/list 有�
   local n_mine tool out
   n_mine="$(jq --arg s "$SMOKE_SLUG" '[.[] | select(.name | startswith($s + "__"))] | length' "$SMOKE_TOOLS")"
   [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 $SMOKE_SLUG"__" 前缀工具"; return 1; }
-  tool="$(jq -r --arg s "$SMOKE_SLUG" '[.[] | select(.name | startswith($s + "__") and .annotations.readOnlyHint == true)][0].name // ""' "$SMOKE_TOOLS")"
+  # 注意 select 里 and 的两侧上下文：管道后 . 是 name，注解要回到工具对象上取。
+  tool="$(jq -r --arg s "$SMOKE_SLUG" '[.[] | select((.name | startswith($s + "__")) and .annotations.readOnlyHint == true)][0].name // ""' "$SMOKE_TOOLS")"
   if [[ -z "$tool" ]]; then
     SMOKE_NOTE="${SMOKE_NOTE}；工具没标 readOnlyHint，仅 tools/list，未调"
     return 0
