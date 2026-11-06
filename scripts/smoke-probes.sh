@@ -1,6 +1,5 @@
+# shellcheck shell=bash
 # Actual Budget：sso=proxy（网关代填 x-actual-password）；MCP 有工具，确认标记以运行期注解为准。
-SSO=proxy
-MCP=1
 SMOKE_NOTE="单用户应用，用户表没有用户名，身份按 validate 的 ADMIN + userId 断言"
 
 web_assert() { grep -qi 'actual'; }   # 标准输入：应用真实页面
@@ -20,7 +19,7 @@ identity_check() { # 应用自己的登录 + validate 接口：认出来的是�
 mcp_check() { # 有只读工具就真调一个，否则只断言 tools/list 有工具
   local n_mine tool out
   n_mine="$(jq --arg s "$SMOKE_SLUG" '[.[] | select(.name | startswith($s + "__"))] | length' "$SMOKE_TOOLS")"
-  [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 $SMOKE_SLUG"__" 前缀工具"; return 1; }
+  [[ "$n_mine" -ge 1 ]] || { echo "tools/list 没有 ${SMOKE_SLUG}__ 前缀工具"; return 1; }
   # 注意 select 里 and 的两侧上下文：管道后 . 是 name，注解要回到工具对象上取。
   tool="$(jq -r --arg s "$SMOKE_SLUG" '[.[] | select((.name | startswith($s + "__")) and .annotations.readOnlyHint == true)][0].name // ""' "$SMOKE_TOOLS")"
   if [[ -z "$tool" ]]; then
