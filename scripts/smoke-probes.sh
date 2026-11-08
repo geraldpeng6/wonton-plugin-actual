@@ -62,7 +62,7 @@ _ac_create_budget() { # <名字>：官方客户端库建账本并上传远端；
   await lib.send("create-budget", { budgetName: process.argv[2] });
   await api.shutdown();
 })().catch(e => { console.error((e && e.message) || e); process.exit(1); });'
-  docker exec "$(_ac_container)" node -e "$script" "$entry" "$1"
+  docker exec -w /tmp "$(_ac_container)" node -e "$script" "$entry" "$1"
 }
 
 _ac_login_token() { # 经网关会话登录（网关代填密码），输出 x-actual-token；失败原因打到标准错误
