@@ -6,6 +6,7 @@ web_assert() { grep -qi 'actual'; }   # 标准输入：应用真实页面
 
 # 应用是单用户的：用户表没有用户名（userName 为空），应用侧能断言的是“认出来的是管理员本人”。
 identity_check() { # 应用自己的登录 + validate 接口：认出来的是用户管理员
+  SMOKE_WEB_URL="${SMOKE_WEB_URL%/}"  # 套件给的地址带尾斜杠，拼路径前剥掉，避免 // 打不进路由
   local r tok v
   r="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' \
     -d '{"loginMethod":"header"}' "$SMOKE_WEB_URL/account/login")" || { echo "login 失败：$r"; return 1; }
