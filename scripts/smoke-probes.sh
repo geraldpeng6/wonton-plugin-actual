@@ -53,63 +53,53 @@ _ac_api_entry() { # 在 MCP 容器里定位 @actual-app/api 的入口（镜像 c
   docker exec "$(_ac_container)" node -e 'console.log(require.resolve("@actual-app/api"))' 2>/dev/null
 }
 
-_ac_create_budget() { # <名字>：官方客户端库建账本并上传远端；失败原因打到标准错误
-  local entry script
+_ac_budget_script() { # <create|check> <名字>：建并上传账本 / 核对账本还在。建和查都走官方客户端库
+  # 与服务端的同步接口（MCP 容器内直连应用，和网页同一条通道）；网关侧的 /sync 路径不在
+  # webui 代理范围，核对不能经网关。失败原因打到标准错误。
+  local mode="$1" name="$2" entry script
   entry="$(_ac_api_entry)" || { echo "MCP 容器里找不到 @actual-app/api" >&2; return 1; }
   script='const api = require(process.argv[1]);
-(async () => {
-  const lib = await api.init({ data: "/tmp/wonton-smoke-budget", serverURL: process.env.ACTUAL_SERVER_URL, password: process.env.ACTUAL_PASSWORD });
-  await lib.send("create-budget", { budgetName: process.argv[2] });
-  // create-budget 内部的上传失败会被吞掉（离线也能建账本是上游设计），这里显式再传一次并把错误抛出来。
-  const up = await lib.send("upload-budget");
-  if (up && up.error) throw new Error("upload-budget: " + JSON.stringify(up.error));
-  // 自诊断：用同一个会话列一遍远端文件，上传后服务端立刻能看到才算数。
+const remote = async () => {
   const login = await fetch(process.env.ACTUAL_SERVER_URL + "/account/login", {
     method: "POST", headers: { "content-type": "application/json", "x-actual-password": process.env.ACTUAL_PASSWORD }, body: "{}",
   });
   const token = (await login.json()).data?.token;
+  if (!token) throw new Error("登录拿不到 token");
   const list = await fetch(process.env.ACTUAL_SERVER_URL + "/sync/list-user-files", { headers: { "x-actual-token": token } });
-  console.error("诊断：list-user-files " + JSON.stringify(await list.json()));
-  await api.shutdown();
+  const j = await list.json();
+  if (j.status !== "ok" || !Array.isArray(j.data)) throw new Error("list-user-files: " + JSON.stringify(j));
+  return j.data.filter(f => !f.deleted).map(f => f.name);
+};
+(async () => {
+  const mode = process.argv[2], name = process.argv[3];
+  if (mode === "create") {
+    const lib = await api.init({ data: "/tmp/wonton-smoke-budget", serverURL: process.env.ACTUAL_SERVER_URL, password: process.env.ACTUAL_PASSWORD });
+    await lib.send("create-budget", { budgetName: name });
+    // create-budget 内部的上传失败会被吞掉（离线也能建账本是上游设计），显式再传一次并把错误抛出来。
+    const up = await lib.send("upload-budget");
+    if (up && up.error) throw new Error("upload-budget: " + JSON.stringify(up.error));
+    await api.shutdown();
+  }
+  const names = await remote();
+  if (!names.includes(name)) {
+    throw new Error((mode === "create" ? "上传后服务端没有账本" : "远端没有账本") + "（远端有：" + JSON.stringify(names) + "）");
+  }
 })().catch(e => { console.error((e && e.message) || e); process.exit(1); });'
-  docker exec -w /tmp "$(_ac_container)" node -e "$script" "$entry" "$1"
-}
-
-_ac_login_token() { # 经网关会话登录（网关代填密码），输出 x-actual-token；失败原因打到标准错误
-  local r
-  r="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H 'Content-Type: application/json' \
-    -d '{"loginMethod":"header"}' "$SMOKE_WEB_URL/account/login")" || { echo "login 请求失败" >&2; return 1; }
-  jq -r '.data.token // empty' <<<"$r"
-}
-
-_ac_find_budget() { # <名字> <token>：list-user-files 里找没删的账本；找到返回 0
-  local files
-  files="$(curl -sS --noproxy '*' --fail-with-body -b "$SMOKE_JAR" -H "x-actual-token: $2" \
-    "$SMOKE_WEB_URL/sync/list-user-files")" || { echo "list-user-files 失败" >&2; return 2; }
-  jq -e --arg n "$1" 'any(.data[]; .name == $n and (.deleted | not))' <<<"$files" >/dev/null
+  docker exec -w /tmp "$(_ac_container)" node -e "$script" "$entry" "$mode" "$name"
 }
 
 data_write() {
-  local marker tok
+  local marker
   marker="wonton-smoke-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
-  dweb --fresh / -L >/dev/null || { echo "重建网关会话失败"; return 1; }
-  _ac_create_budget "$marker" || { echo "建账本失败（原因见日志）"; return 1; }
-  tok="$(_ac_login_token)" || { echo "登录拿不到 token（原因见日志）"; return 1; }
-  if ! _ac_find_budget "$marker" "$tok"; then
-    echo "建了但服务端没有账本 $marker（上传失败？）"; return 1
-  fi
+  _ac_budget_script create "$marker" || { echo "建账本失败（原因见日志）"; return 1; }
   printf '%s' "$marker" >"$(_ac_marker_file)" || { echo "写不进标记文件 $(_ac_marker_file)"; return 1; }
   echo "已建账本 $marker"
 }
 
 data_check() {
-  local marker tok
+  local marker
   marker="$(cat "$(_ac_marker_file)" 2>/dev/null)" || true
   [[ -n "$marker" ]] || { echo "没有 data_write 留下的标记（SMOKE_STATE=${SMOKE_STATE:-未设置}）"; return 1; }
-  dweb --fresh / -L >/dev/null || { echo "重建网关会话失败"; return 1; }
-  tok="$(_ac_login_token)" || { echo "登录拿不到 token（原因见日志）"; return 1; }
-  if ! _ac_find_budget "$marker" "$tok"; then
-    echo "账本 $marker 不见了（升级/重装丢了？）"; return 1
-  fi
+  _ac_budget_script check "$marker" || { echo "账本 $marker 读回失败（原因见日志）"; return 1; }
   echo "账本 $marker 还在"
 }
