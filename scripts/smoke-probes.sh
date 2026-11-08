@@ -63,6 +63,13 @@ _ac_create_budget() { # <名字>：官方客户端库建账本并上传远端；
   // create-budget 内部的上传失败会被吞掉（离线也能建账本是上游设计），这里显式再传一次并把错误抛出来。
   const up = await lib.send("upload-budget");
   if (up && up.error) throw new Error("upload-budget: " + JSON.stringify(up.error));
+  // 自诊断：用同一个会话列一遍远端文件，上传后服务端立刻能看到才算数。
+  const login = await fetch(process.env.ACTUAL_SERVER_URL + "/account/login", {
+    method: "POST", headers: { "content-type": "application/json", "x-actual-password": process.env.ACTUAL_PASSWORD }, body: "{}",
+  });
+  const token = (await login.json()).data?.token;
+  const list = await fetch(process.env.ACTUAL_SERVER_URL + "/sync/list-user-files", { headers: { "x-actual-token": token } });
+  console.error("诊断：list-user-files " + JSON.stringify(await list.json()));
   await api.shutdown();
 })().catch(e => { console.error((e && e.message) || e); process.exit(1); });'
   docker exec -w /tmp "$(_ac_container)" node -e "$script" "$entry" "$1"
