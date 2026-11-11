@@ -2,7 +2,7 @@
 
 把 [Actual Budget](https://actualbudget.org)（MIT）装成云吞插件：本地优先的家庭记账和信封预算，网页经云吞网关直接以用户身份打开。插件 ID 是 `org.actualbudget.actual`，用的镜像是上游官方 `actualbudget/actual-server`。
 
-开发流程见[插件开发指南](https://github.com/geraldpeng6/wonton-docs/blob/main/develop.md)，这里只写这个插件自己的事。
+开发流程见[插件开发指南](https://github.com/wontonapp/wonton-docs/blob/main/develop.md)，这里只写这个插件自己的事。
 
 ## 登录
 
