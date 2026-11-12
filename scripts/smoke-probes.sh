@@ -6,7 +6,6 @@ web_assert() { grep -qi 'actual'; }   # 标准输入：应用真实页面
 
 # 应用是单用户的：用户表没有用户名（userName 为空），应用侧能断言的是“认出来的是管理员本人”。
 identity_check() { # 应用自己的登录 + validate 接口：认出来的是用户管理员
-  SMOKE_WEB_URL="${SMOKE_WEB_URL%/}"  # 套件给的地址带尾斜杠，拼路径前剥掉，避免 // 打不进路由
   local r tok v
   r="$(curl -sS --noproxy '*' -b "$SMOKE_JAR" -c "$SMOKE_JAR" -H 'Content-Type: application/json' \
     -d '{"loginMethod":"header"}' "$SMOKE_WEB_URL/account/login")" || { echo "login 失败：$r"; return 1; }
@@ -43,20 +42,28 @@ mcp_check() { # 有只读工具就真调一个，否则只断言 tools/list 有�
 # 官方文档：服务端不做账本分析修改）。冒烟没有浏览器：data_write 在插件的 MCP 容器里用官方客户端库
 # @actual-app/api 建一本带随机标记的账本（create-budget 不带 avoidUpload 就会同步上传远端，和网页
 # 是同一条通道），再经服务端 /sync/list-user-files 核实；data_check 在升级、重装后用同一条接口找回。
-_ac_container() { printf 'wonton-%s--%s--mcp' "${SMOKE_INSTANCE:-}" "${SMOKE_SLUG:-}"; }
-
-_ac_marker_file() { # 标记文件：SMOKE_STATE 在 dev.sh probes 里是目录，目录里放标记文件
-  if [[ -d "${SMOKE_STATE:-}" ]]; then printf '%s/data-marker' "$SMOKE_STATE"; else printf '%s' "${SMOKE_STATE:-}"; fi
+# 按 <服务名> 找本实例里这个服务的容器：核心给插件容器打了 wonton.plugin / wonton.service / wonton.instance
+# 标签，按标签找，不自己拼容器名。
+_container() {
+  local name
+  name="$(docker ps --format '{{.Names}}' \
+    --filter "label=wonton.plugin=$SMOKE_PLUGIN_ID" \
+    --filter "label=wonton.service=$1" \
+    --filter "label=wonton.instance=$SMOKE_INSTANCE" | head -1)"
+  [[ -n "$name" ]] || { echo "找不到 $SMOKE_PLUGIN_ID 的 $1 服务容器（实例 $SMOKE_INSTANCE）" >&2; return 1; }
+  printf '%s\n' "$name"
 }
 
 _ac_api_entry() { # 在 MCP 容器里定位 @actual-app/api 的入口（镜像 cwd 是 /app）
-  docker exec "$(_ac_container)" node -e 'console.log(require.resolve("@actual-app/api"))' 2>/dev/null
+  local c
+  c="$(_container mcp)" || return 1
+  docker exec "$c" node -e 'console.log(require.resolve("@actual-app/api"))' 2>/dev/null
 }
 
 _ac_budget_script() { # <create|check> <名字>：建并上传账本 / 核对账本还在。建和查都走官方客户端库
   # 与服务端的同步接口（MCP 容器内直连应用，和网页同一条通道）；网关侧的 /sync 路径不在
   # webui 代理范围，核对不能经网关。失败原因打到标准错误。
-  local mode="$1" name="$2" entry script
+  local mode="$1" name="$2" entry script c
   entry="$(_ac_api_entry)" || { echo "MCP 容器里找不到 @actual-app/api" >&2; return 1; }
   script='const api = require(process.argv[1]);
 const remote = async () => {
@@ -85,21 +92,22 @@ const remote = async () => {
     throw new Error((mode === "create" ? "上传后服务端没有账本" : "远端没有账本") + "（远端有：" + JSON.stringify(names) + "）");
   }
 })().catch(e => { console.error((e && e.message) || e); process.exit(1); });'
-  docker exec -w /tmp "$(_ac_container)" node -e "$script" "$entry" "$mode" "$name"
+  c="$(_container mcp)" || { echo "找不到 MCP 容器" >&2; return 1; }
+  docker exec -w /tmp "$c" node -e "$script" "$entry" "$mode" "$name"
 }
 
 data_write() {
   local marker
   marker="wonton-smoke-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
   _ac_budget_script create "$marker" || { echo "建账本失败（原因见日志）"; return 1; }
-  printf '%s' "$marker" >"$(_ac_marker_file)" || { echo "写不进标记文件 $(_ac_marker_file)"; return 1; }
+  printf '%s' "$marker" >"$SMOKE_STATE" || { echo "写不进标记文件 $SMOKE_STATE"; return 1; }
   echo "已建账本 $marker"
 }
 
 data_check() {
   local marker
-  marker="$(cat "$(_ac_marker_file)" 2>/dev/null)" || true
-  [[ -n "$marker" ]] || { echo "没有 data_write 留下的标记（SMOKE_STATE=${SMOKE_STATE:-未设置}）"; return 1; }
+  marker="$(cat "$SMOKE_STATE" 2>/dev/null)" || true
+  [[ -n "$marker" ]] || { echo "没有 data_write 留下的标记（SMOKE_STATE=$SMOKE_STATE）"; return 1; }
   _ac_budget_script check "$marker" || { echo "账本 $marker 读回失败（原因见日志）"; return 1; }
   echo "账本 $marker 还在"
 }
