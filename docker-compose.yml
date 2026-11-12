@@ -159,10 +159,10 @@ x-wonton:
   id: org.actualbudget.actual
   version: 0.1.2
   kind: app
-  title: { en: Actual }
+  title: { zh: 家庭账本（Actual）, en: Household Budget (Actual) }
   description:
-    zh: 记家庭账、做预算，数据留在自己家里
-    en: Track household spending and budgets, with your data at home
+    zh: 像一本家庭记账本：每笔花销记下来，给吃饭、交通等各类开销定好每月预算，花超没超一眼看清；手机和电脑看的是同一本账。
+    en: "A household ledger: record every expense, give each category a monthly budget and see at a glance what's left; your phone and computer open the same book."
   icon: icon.png
   notices: [NOTICE]
   screenshots:
