@@ -146,11 +146,16 @@ services:
       init:
         condition: service_completed_successfully
     healthcheck:
-      # 登录、MCP 协议握手和工具列表；有预算时实际调用 get-accounts，覆盖下载与解密失败。
+      # 只做 mcp 自己的协议握手和工具列表，不登录 Actual：登录接口会限流
+      # （{"status":"error","reason":"too-many-requests"}），每分钟登录一次既触发限流，也挤占真用户的
+      # 登录。Actual 可达性由 actual 的 /health（无登录）检查，头认证由 init 启动时验证一次；
+      # 预算被删、密钥失效在 Bot 调工具时如实报错，健康检查不再替它们登录。
+      # 探测全在本机，没有上游抖动：interval 30s 与 actual 服务一致；连续 3 次失败（约 90 s）判
+      # 不健康；timeout 10s 容住慢机器上 Node 冷启动加几次本机往返。
       test: ["CMD", "node", "/app/healthcheck.mjs"]
-      interval: 60s
-      timeout: 15s
-      retries: 6
+      interval: 30s
+      timeout: 10s
+      retries: 3
       start_period: 30s
       start_interval: 2s
 
