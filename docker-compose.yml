@@ -162,7 +162,7 @@ services:
 x-wonton:
   spec: "0.7"
   id: org.actualbudget.actual
-  version: 0.1.3
+  version: 0.1.4
   kind: app
   title: { zh: 家庭账本（Actual）, en: Household Budget (Actual) }
   description:
@@ -190,7 +190,7 @@ x-wonton:
       Track household income and spending, set budgets and read reports. Phone and desktop open the same budget, and the data stays on this machine.
 
       Create or import a budget in the web app first; the bot's ledger tools read from it. Automatic bank sync uses GoCardless or SimpleFIN, so the plugin needs internet access. Export backups from the budget's Settings > Export data to the current device.
-  release_notes: { zh: 网页声明跨源隔离，桌面浏览器里功能完整；更新时会重新请你确认。清单规范升到 0.7，旧版家庭服务器会提示先升级。, en: The web page declares cross-origin isolation for full functionality in desktop browsers; updating asks you to confirm again. Manifest spec raised to 0.7; older home servers will ask to update first. }
+  release_notes: { zh: 记账助手的健康检查不再反复登录记账服务，避免被限流误报异常、影响正常登录。, en: "The ledger assistant's health check no longer logs in repeatedly, avoiding rate limiting and false unhealthy reports." }
   webui:
     service: actual
     port: 5006
